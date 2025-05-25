@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-
+const text =
+  'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.';
 const textCanvas = document.createElement('canvas');
 const ctx = textCanvas.getContext('2d');
 textCanvas.width = 256;
@@ -16,18 +17,29 @@ const camera = new THREE.PerspectiveCamera(
   1000
 );
 
-const geometry = new THREE.PlaneGeometry(2, 2); // 2x2 units square
+
+// const geometry = new THREE.PlaneGeometry(2, 2); // 2x2 units square
 const texture = new THREE.CanvasTexture(textCanvas);
-const material = new THREE.MeshBasicMaterial({
-  map: texture,
-  side: THREE.DoubleSide,
-});
-const plane = new THREE.Mesh(geometry, material);
+// const material = new THREE.MeshBasicMaterial({
+//   map: texture,
+//   side: THREE.DoubleSide,
+// });
+const planes = [];
+for (let i = 0; i < 4; i++) {
+    const planeGeometry = new THREE.PlaneGeometry(2, 2);
+    const planeMaterial = new THREE.MeshBasicMaterial({
+        map: texture,
+        side: THREE.DoubleSide,
+    });
+    const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
+    planeMesh.position.set(i * 2-3 + (i*0.2), 0, 0); // Spread planes along x-axis
+    planes.push(planeMesh);
+}
+// const plane = new THREE.Mesh(geometry, material);
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
-
 renderer.setSize(window.innerWidth, window.innerHeight);
-scene.add(plane);
+scene.add(...planes);
 
 camera.position.z = 5;
 
@@ -55,6 +67,7 @@ function getOptimalFontSize(
   let fontSize = maxFont;
   let fits = false;
   let lines = [];
+  let totalHeight = 0;
   // check what is the maximum font size we can fit
   while (fontSize >= minFont && !fits) {
     context.font = fontSize + 'px Arial';
@@ -75,7 +88,7 @@ function getOptimalFontSize(
       }
     }
     lines.push(line);
-    const totalHeight = lines.length * fontSize * lineHeightRatio;
+    totalHeight = lines.length * fontSize * lineHeightRatio;
     // check if total height of lines fits in maxHeight
     if (totalHeight <= maxHeight) {
       fits = true;
@@ -83,7 +96,7 @@ function getOptimalFontSize(
       fontSize -= 1;
     }
   }
-  return { fontSize, lines };
+  return { fontSize, lines, totalHeight };
 }
 
 let wordBoxes = [];
@@ -98,7 +111,7 @@ function wrapTextAndTrackWords(
 ) {
   wordBoxes = [];
   const lineHeightRatio = 1.15;
-  const { fontSize, lines } = getOptimalFontSize(
+  const { fontSize, lines, totalHeight } = getOptimalFontSize(
     context,
     text,
     maxWidth,
@@ -107,17 +120,13 @@ function wrapTextAndTrackWords(
     40,
     lineHeightRatio
   );
-  context.font = fontSize + 'px Arial';
   const lineHeight = fontSize * lineHeightRatio;
   // Split words for bounding boxes
-  let allLineWords = [];
-  for (let i = 0, wordIdx = 0; i < lines.length; i++) {
-    let line = lines[i];
-    let words = line.trim().split(' ').filter(Boolean);
-    allLineWords.push(words);
-  }
+  let allLineWords = lines.reduce(
+    (acc, line) => [...acc, line.trim().split(' ').filter(Boolean)],
+    []
+  );
   // Center vertically
-  const totalHeight = lines.length * lineHeight;
   let startY = y - totalHeight / 2 + lineHeight / 2;
   let wordIdx = 0;
   for (let i = 0; i < lines.length; i++) {
@@ -134,9 +143,9 @@ function wrapTextAndTrackWords(
         context.fillStyle = '#ffff00';
         context.fillRect(
           currX,
-          startY + i * lineHeight - lineHeight / 2 + 2,
+          startY + i * lineHeight - lineHeight / 2,
           wordWidth,
-          lineHeight - 4
+          lineHeight
         );
         context.restore();
       }
@@ -147,6 +156,7 @@ function wrapTextAndTrackWords(
         startY + i * lineHeight,
         wordWidth
       );
+      //TODO: can be optimized, boxes can be stored in a map with surface area as key
       wordBoxes.push({
         x: currX,
         y: startY + i * lineHeight - lineHeight / 2,
@@ -160,8 +170,6 @@ function wrapTextAndTrackWords(
   }
 }
 
-const text =
-  'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.';
 let hoveredWordIdx = -1;
 const drawText = (highlightIdx = -1) => {
   ctx.clearRect(0, 0, textCanvas.width, textCanvas.height);
@@ -196,6 +204,7 @@ const spawnRaycaster = (event) => {
       const canvasY = (1 - uv.y) * textCanvas.height;
       // Find hovered word
       let found = -1;
+      console.log(wordBoxes)
       for (let i = 0; i < wordBoxes.length; i++) {
         const box = wordBoxes[i];
         if (
