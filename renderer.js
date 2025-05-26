@@ -1,12 +1,22 @@
 import * as THREE from 'three';
+const CAMERA_TRAVEL_RADIUS = 5;
+const CAMERA_TRAVEL_SPEED = 0.3;
+const AMOUNT_OF_PLANES = 4;
+
+
+let hoveredWordIdx = -1;
+let precomputedWordBoxes = [];
+const planesArray = [];
 const text =
   'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.';
+//temp canvas to draw text on
 const textCanvas = document.createElement('canvas');
 const ctx = textCanvas.getContext('2d');
 textCanvas.width = 256;
 textCanvas.height = 256;
 ctx.textAlign = 'center';
 ctx.textBaseline = 'middle';
+//
 
 const renderer = new THREE.WebGLRenderer();
 const scene = new THREE.Scene();
@@ -17,11 +27,13 @@ const camera = new THREE.PerspectiveCamera(
   1000
 );
 camera.position.z = 5;
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+renderer.setSize(window.innerWidth, window.innerHeight);
 
-const AMOUNT_OF_PLANES = 4;
-let hoveredWordIdx = -1;
-
-const planesArray = [];
+const loader = new THREE.TextureLoader();
+const bgTexture = loader.load('./fireball.jpg');
+bgTexture.colorSpace = THREE.SRGBColorSpace;
 
 for (let i = 0; i < AMOUNT_OF_PLANES; i++) {
   const texture = new THREE.CanvasTexture(textCanvas);
@@ -32,19 +44,30 @@ for (let i = 0; i < AMOUNT_OF_PLANES; i++) {
   });
   const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
   planeMesh.position.set(i * 2 - 3 + i * 0.2, 0, 0); // Spread planes along x-axis
-  planeMesh.userData['planeId'] = i;
+  planeMesh.rotation.x = Math.PI / Math.random(0, 0.5); // Rotate to face the camera
+  planeMesh.rotation.y = Math.PI / Math.random(0, 0.5); // Rotate to face the camera
+  planeMesh.userData.planeId = i;
   planesArray.push({
     planeMesh,
-    planeId: i,
     wordBoxes: {},
     hoveredWordIdx: -1,
     texture,
   });
 }
-const raycaster = new THREE.Raycaster();
-const pointer = new THREE.Vector2();
-renderer.setSize(window.innerWidth, window.innerHeight);
+
 scene.add(...planesArray.map(({ planeMesh }) => planeMesh));
+
+// Create a large sphere for the background
+const sphereGeometry = new THREE.SphereGeometry(20, 64, 64);
+bgTexture.wrapS = THREE.RepeatWrapping;
+bgTexture.wrapT = THREE.RepeatWrapping;
+bgTexture.repeat.set(8, 4); // Repeat the fireball texture
+const sphereMaterial = new THREE.MeshBasicMaterial({
+  map: bgTexture,
+  side: THREE.BackSide, // Render inside of sphere
+});
+const backgroundSphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+scene.add(backgroundSphere);
 
 // calculate optimal font size and dipsense text into lines
 /**
@@ -73,7 +96,7 @@ function getOptimalFontSize(
   let totalHeight = 0;
   // check what is the maximum font size we can fit
   while (fontSize >= minFont && !fits) {
-    context.font = fontSize + 'px Arial';
+    context.font = fontSize + 'px Smash';
 
     const words = text.split(' ');
     let line = '';
@@ -102,15 +125,7 @@ function getOptimalFontSize(
   return { fontSize, lines, totalHeight };
 }
 
-function wrapTextAndTrackWords(
-  context,
-  x,
-  y,
-  maxWidth,
-  maxHeight,
-  highlightIdx = -1,
-  planeIdx = -1
-) {
+function wrapTextAndTrackWords(context, x, y, maxWidth, maxHeight) {
   const lineHeightRatio = 1.15;
   const { fontSize, lines, totalHeight } = getOptimalFontSize(
     context,
@@ -122,14 +137,13 @@ function wrapTextAndTrackWords(
     lineHeightRatio
   );
   const lineHeight = fontSize * lineHeightRatio;
-  // Split words for bounding boxes
   let allLineWords = lines.reduce(
     (acc, line) => [...acc, line.trim().split(' ').filter(Boolean)],
     []
   );
-  // Center vertically
   let startY = y - totalHeight / 2 + lineHeight / 2;
   let wordIdx = 0;
+  let wordBoxes = [];
   for (let i = 0; i < lines.length; i++) {
     let lineText = lines[i];
     let wordsInLine = allLineWords[i];
@@ -139,56 +153,85 @@ function wrapTextAndTrackWords(
     for (let j = 0; j < wordsInLine.length; j++) {
       let word = wordsInLine[j];
       let wordWidth = context.measureText(word + ' ').width;
-      if (wordIdx === highlightIdx) {
-        context.save();
-        context.fillStyle = '#ffff00';
-        context.fillRect(
-          currX,
-          startY + i * lineHeight - lineHeight / 2,
-          wordWidth,
-          lineHeight
-        );
-        context.restore();
-      }
-      context.fillStyle = '#000000';
-      context.fillText(
-        word,
-        currX + wordWidth / 2,
-        startY + i * lineHeight,
-        wordWidth
-      );
-      if (planeIdx === -1) {
-        for (let k = 0; k < AMOUNT_OF_PLANES; k++) {
-          planesArray[k].wordBoxes[currX + startY] = {
-            x: currX,
-            y: startY + i * lineHeight - lineHeight / 2,
-            width: wordWidth,
-            height: lineHeight,
-            idx: wordIdx,
-          };
-          //   planesArray[k].wordBoxes.push();
-        }
-      }
+      wordBoxes.push({
+        x: currX,
+        y: startY + i * lineHeight - lineHeight / 2,
+        width: wordWidth,
+        height: lineHeight,
+        idx: wordIdx,
+      });
       currX += wordWidth;
       wordIdx++;
     }
   }
+  return wordBoxes;
+}
+
+precomputedWordBoxes = wrapTextAndTrackWords(
+  ctx,
+  textCanvas.width / 2,
+  textCanvas.height / 2,
+  textCanvas.width * 0.9,
+  textCanvas.height * 0.9
+);
+for (let i = 0; i < AMOUNT_OF_PLANES; i++) {
+  planesArray[i].wordBoxes = precomputedWordBoxes;
 }
 
 const drawText = (highlightIdx = -1, planeId = -1) => {
   ctx.clearRect(0, 0, textCanvas.width, textCanvas.height);
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, textCanvas.width, textCanvas.height);
-  //since the text and the sizes of the planes are same, we can use the result of text wrapping function for all planes
-  wrapTextAndTrackWords(
+  // Draw text and highlight if needed
+  const lineHeightRatio = 1.15;
+  const { fontSize, lines, totalHeight } = getOptimalFontSize(
     ctx,
-    textCanvas.width / 2,
-    textCanvas.height / 2,
+    text,
     textCanvas.width * 0.9,
     textCanvas.height * 0.9,
-    highlightIdx,
-    planeId
+    10,
+    40,
+    lineHeightRatio
   );
+  ctx.font = fontSize + 'px Smash';
+  const lineHeight = fontSize * lineHeightRatio;
+  let allLineWords = lines.reduce(
+    (acc, line) => [...acc, line.trim().split(' ').filter(Boolean)],
+    []
+  );
+  let startY = textCanvas.height / 2 - totalHeight / 2 + lineHeight / 2;
+  let wordIdx = 0;
+  for (let i = 0; i < lines.length; i++) {
+    let lineText = lines[i];
+    let wordsInLine = allLineWords[i];
+    let lineWidth = ctx.measureText(lineText).width;
+    let startX = textCanvas.width / 2 - lineWidth / 2;
+    let currX = startX;
+    for (let j = 0; j < wordsInLine.length; j++) {
+      let word = wordsInLine[j];
+      let wordWidth = ctx.measureText(word + ' ').width;
+      if (wordIdx === highlightIdx) {
+        ctx.save();
+        ctx.fillStyle = 'red';
+        ctx.fillRect(
+          currX,
+          startY + i * lineHeight - lineHeight / 2,
+          wordWidth,
+          lineHeight
+        );
+        ctx.restore();
+      }
+      ctx.fillStyle = '#000000';
+      ctx.fillText(
+        word,
+        currX + wordWidth / 2,
+        startY + i * lineHeight,
+        wordWidth
+      );
+      currX += wordWidth;
+      wordIdx++;
+    }
+  }
   if (planeId !== -1) {
     planesArray[planeId].texture.needsUpdate = true;
   }
@@ -200,28 +243,21 @@ const spawnRaycaster = (event) => {
   pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
   pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-
   const intersects = raycaster.intersectObjects(
     planesArray.map((plane) => plane.planeMesh)
   );
   if (intersects.length > 0) {
-    // Get intersection point in plane local space
     const {
       uv,
       object: { userData },
     } = intersects[0];
     if (uv) {
-      // Convert uv (0-1) to canvas coordinates
       const canvasX = uv.x * textCanvas.width;
       const canvasY = (1 - uv.y) * textCanvas.height;
-      // Find hovered word
       let found = -1;
       const wordBoxes = planesArray[userData.planeId].wordBoxes;
-      console.log(wordBoxes);
-
-      //   console.log(wordBoxes);
-      for (let i = 0; i < Object.values(wordBoxes).length; i++) {
-        const box = Object.values(wordBoxes)[i];
+      for (let i = 0; i < wordBoxes.length; i++) {
+        const box = wordBoxes[i];
         if (
           canvasX >= box.x &&
           canvasX <= box.x + box.width &&
@@ -254,6 +290,12 @@ window.addEventListener('resize', () => {
 });
 
 const animate = () => {
+  const time = performance.now() * 0.001 * CAMERA_TRAVEL_SPEED;
+  // Diagonal camera movement
+  camera.position.x = Math.cos(time) * CAMERA_TRAVEL_RADIUS;
+  camera.position.y = -Math.sin(time) * CAMERA_TRAVEL_RADIUS * 0.5; // Add vertical movement
+  camera.position.z = Math.sin(time) * CAMERA_TRAVEL_RADIUS;
+  camera.lookAt(0, 0, 0);
   renderer.render(scene, camera);
 };
 renderer.setAnimationLoop(animate);
