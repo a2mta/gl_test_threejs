@@ -16,32 +16,35 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   1000
 );
+camera.position.z = 5;
 
+const AMOUNT_OF_PLANES = 4;
+let hoveredWordIdx = -1;
 
-// const geometry = new THREE.PlaneGeometry(2, 2); // 2x2 units square
-const texture = new THREE.CanvasTexture(textCanvas);
-// const material = new THREE.MeshBasicMaterial({
-//   map: texture,
-//   side: THREE.DoubleSide,
-// });
-const planes = [];
-for (let i = 0; i < 4; i++) {
-    const planeGeometry = new THREE.PlaneGeometry(2, 2);
-    const planeMaterial = new THREE.MeshBasicMaterial({
-        map: texture,
-        side: THREE.DoubleSide,
-    });
-    const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
-    planeMesh.position.set(i * 2-3 + (i*0.2), 0, 0); // Spread planes along x-axis
-    planes.push(planeMesh);
+const planesArray = [];
+
+for (let i = 0; i < AMOUNT_OF_PLANES; i++) {
+  const texture = new THREE.CanvasTexture(textCanvas);
+  const planeGeometry = new THREE.PlaneGeometry(2, 2);
+  const planeMaterial = new THREE.MeshBasicMaterial({
+    map: texture,
+    side: THREE.DoubleSide,
+  });
+  const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
+  planeMesh.position.set(i * 2 - 3 + i * 0.2, 0, 0); // Spread planes along x-axis
+  planeMesh.userData['planeId'] = i;
+  planesArray.push({
+    planeMesh,
+    planeId: i,
+    wordBoxes: {},
+    hoveredWordIdx: -1,
+    texture,
+  });
 }
-// const plane = new THREE.Mesh(geometry, material);
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 renderer.setSize(window.innerWidth, window.innerHeight);
-scene.add(...planes);
-
-camera.position.z = 5;
+scene.add(...planesArray.map(({ planeMesh }) => planeMesh));
 
 // calculate optimal font size and dipsense text into lines
 /**
@@ -99,17 +102,15 @@ function getOptimalFontSize(
   return { fontSize, lines, totalHeight };
 }
 
-let wordBoxes = [];
 function wrapTextAndTrackWords(
   context,
-  text,
   x,
   y,
   maxWidth,
   maxHeight,
-  highlightIdx = -1
+  highlightIdx = -1,
+  planeIdx = -1
 ) {
-  wordBoxes = [];
   const lineHeightRatio = 1.15;
   const { fontSize, lines, totalHeight } = getOptimalFontSize(
     context,
@@ -156,35 +157,41 @@ function wrapTextAndTrackWords(
         startY + i * lineHeight,
         wordWidth
       );
-      //TODO: can be optimized, boxes can be stored in a map with surface area as key
-      wordBoxes.push({
-        x: currX,
-        y: startY + i * lineHeight - lineHeight / 2,
-        width: wordWidth,
-        height: lineHeight,
-        idx: wordIdx,
-      });
+      if (planeIdx === -1) {
+        for (let k = 0; k < AMOUNT_OF_PLANES; k++) {
+          planesArray[k].wordBoxes[currX + startY] = {
+            x: currX,
+            y: startY + i * lineHeight - lineHeight / 2,
+            width: wordWidth,
+            height: lineHeight,
+            idx: wordIdx,
+          };
+          //   planesArray[k].wordBoxes.push();
+        }
+      }
       currX += wordWidth;
       wordIdx++;
     }
   }
 }
 
-let hoveredWordIdx = -1;
-const drawText = (highlightIdx = -1) => {
+const drawText = (highlightIdx = -1, planeId = -1) => {
   ctx.clearRect(0, 0, textCanvas.width, textCanvas.height);
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, textCanvas.width, textCanvas.height);
+  //since the text and the sizes of the planes are same, we can use the result of text wrapping function for all planes
   wrapTextAndTrackWords(
     ctx,
-    text,
     textCanvas.width / 2,
     textCanvas.height / 2,
     textCanvas.width * 0.9,
     textCanvas.height * 0.9,
-    highlightIdx
+    highlightIdx,
+    planeId
   );
-  texture.needsUpdate = true;
+  if (planeId !== -1) {
+    planesArray[planeId].texture.needsUpdate = true;
+  }
 };
 drawText();
 
@@ -193,20 +200,28 @@ const spawnRaycaster = (event) => {
   pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
   pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const intersects = raycaster.intersectObjects([plane]);
+
+  const intersects = raycaster.intersectObjects(
+    planesArray.map((plane) => plane.planeMesh)
+  );
   if (intersects.length > 0) {
     // Get intersection point in plane local space
-    const intersect = intersects[0];
-    const uv = intersect.uv;
+    const {
+      uv,
+      object: { userData },
+    } = intersects[0];
     if (uv) {
       // Convert uv (0-1) to canvas coordinates
       const canvasX = uv.x * textCanvas.width;
       const canvasY = (1 - uv.y) * textCanvas.height;
       // Find hovered word
       let found = -1;
-      console.log(wordBoxes)
-      for (let i = 0; i < wordBoxes.length; i++) {
-        const box = wordBoxes[i];
+      const wordBoxes = planesArray[userData.planeId].wordBoxes;
+      console.log(wordBoxes);
+
+      //   console.log(wordBoxes);
+      for (let i = 0; i < Object.values(wordBoxes).length; i++) {
+        const box = Object.values(wordBoxes)[i];
         if (
           canvasX >= box.x &&
           canvasX <= box.x + box.width &&
@@ -219,7 +234,7 @@ const spawnRaycaster = (event) => {
       }
       if (found !== hoveredWordIdx) {
         hoveredWordIdx = found;
-        drawText(hoveredWordIdx);
+        drawText(hoveredWordIdx, userData.planeId);
       }
     }
   } else {
