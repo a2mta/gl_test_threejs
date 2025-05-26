@@ -1,14 +1,16 @@
+//
+//i dont know why, but i was constanlty thinking about postal 2 game menu, so i decided to make the scene a bit alike
+//
 import * as THREE from 'three';
 const CAMERA_TRAVEL_RADIUS = 5;
 const CAMERA_TRAVEL_SPEED = 0.3;
 const AMOUNT_OF_PLANES = 4;
 
-
 let hoveredWordIdx = -1;
 let precomputedWordBoxes = [];
 const planesArray = [];
 const text =
-  'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.';
+  'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.';
 //temp canvas to draw text on
 const textCanvas = document.createElement('canvas');
 const ctx = textCanvas.getContext('2d');
