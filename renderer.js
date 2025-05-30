@@ -24,7 +24,6 @@ const LINE_HEIGHT_RATIO = 1.15;
 
 const CAMERA_TRAVEL_SPEED = 0.3;
 const AMOUNT_OF_PLANES = 4;
-let hoveredWordIdx = -1;
 let precomputedWordBoxes = [];
 const planesArray = [];
 const text =
@@ -64,7 +63,8 @@ const spawnRaycaster = (event) => {
   const intersects = raycaster.intersectObjects(
     planesArray.map((plane) => plane.planeMesh)
   );
-  if (intersects.length > 0) {
+
+  if (intersects.length === 1) {
     const {
       uv,
       object: { userData },
@@ -86,17 +86,8 @@ const spawnRaycaster = (event) => {
           break;
         }
       }
-      if (found !== hoveredWordIdx) {
-        hoveredWordIdx = found;
-        drawText(hoveredWordIdx, userData.planeId);
-      }
+      drawText(found, userData.planeId);
     }
-  } else {
-    hoveredWordIdx = -1;
-
-    drawText();
-    // if (hoveredWordIdx !== -1) {
-    // }
   }
 };
 
@@ -227,17 +218,6 @@ const drawText = (highlightIdx = -1, planeId = -1) => {
     for (let j = 0; j < wordsInLine.length; j++) {
       let word = wordsInLine[j];
       let wordWidth = textCanvasContext.measureText(word + ' ').width;
-      // Draw border for each word box
-      textCanvasContext.save();
-      textCanvasContext.strokeStyle = '#00aaff';
-      textCanvasContext.lineWidth = 1;
-      textCanvasContext.strokeRect(
-        currX,
-        startY + i * lineHeight - lineHeight / 2,
-        wordWidth,
-        lineHeight
-      );
-      textCanvasContext.restore();
       if (wordIdx === highlightIdx) {
         textCanvasContext.save();
         textCanvasContext.fillStyle = 'red';
@@ -260,7 +240,6 @@ const drawText = (highlightIdx = -1, planeId = -1) => {
       wordIdx++;
     }
   }
-
   if (planeId !== -1) {
     planesArray[planeId].texture.needsUpdate = true;
   }
@@ -279,13 +258,12 @@ document.fonts.ready.then(() => {
     });
     const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
     planeMesh.position.set(i * 2 - 3 + i * 0.2, 0, 0); // Spread planes along x-axis
-    //   planeMesh.rotation.x = Math.PI / Math.random(0, 0.5); // Rotate to face the camera
-    //   planeMesh.rotation.y = Math.PI / Math.random(0, 0.5); // Rotate to face the camera
+    planeMesh.rotation.x = Math.PI / Math.random(0, 0.5); // Rotate to face the camera
+    planeMesh.rotation.y = Math.PI / Math.random(0, 0.5); // Rotate to face the camera
     planeMesh.userData.planeId = i;
     planesArray.push({
       planeMesh,
       wordBoxes: {},
-      hoveredWordIdx: -1,
       texture,
     });
   }
@@ -302,8 +280,8 @@ document.fonts.ready.then(() => {
     planesArray[i].wordBoxes = precomputedWordBoxes;
   }
 
-  window.addEventListener('mousemove', spawnRaycaster);
   drawText();
+  window.addEventListener('mousemove', spawnRaycaster);
 });
 
 window.addEventListener('resize', () => {
@@ -313,10 +291,10 @@ window.addEventListener('resize', () => {
 });
 const animate = () => {
   const time = performance.now() * 0.001 * CAMERA_TRAVEL_SPEED;
-  // camera.position.x = Math.cos(time) * CAMERA_TRAVEL_RADIUS;
-  // camera.position.y = -Math.sin(time) * CAMERA_TRAVEL_RADIUS * 0.5; // Add vertical movement
-  // camera.position.z = Math.sin(time) * CAMERA_TRAVEL_RADIUS;
-  // camera.lookAt(0, 0, 0);
+  camera.position.x = Math.cos(time) * CAMERA_TRAVEL_RADIUS;
+  camera.position.y = -Math.sin(time) * CAMERA_TRAVEL_RADIUS * 0.5; // Add vertical movement
+  camera.position.z = Math.sin(time) * CAMERA_TRAVEL_RADIUS;
+  camera.lookAt(0, 0, 0);
   renderer.render(scene, camera);
 };
 renderer.setAnimationLoop(animate);
